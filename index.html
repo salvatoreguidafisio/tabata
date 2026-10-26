@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tabata Pro</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tabata">
+<meta name="theme-color" content="#14181F">
+<style>
+:root{--bg:#F3F5F7;--card:#fff;--ink:#14181F;--mut:#5D6975;--line:#D9DFE5;--ac:#E5383B;
+ font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@media(prefers-color-scheme:dark){:root{--bg:#14181F;--card:#1D232C;--ink:#E9EEF2;--mut:#98A5B1;--line:#2D3743;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+#setup{max-width:48rem;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 1rem) 1rem calc(2rem + env(safe-area-inset-bottom,0px))}
+h1{font-size:1.7rem;margin:.2rem 0 1rem}
+.row{display:flex;gap:.5rem;margin-bottom:.8rem}
+select,input,textarea,button{font:inherit;color:var(--ink)}
+select,input,textarea{width:100%;padding:.7rem .8rem;border:1.5px solid var(--line);border-radius:.6rem;background:var(--card)}
+.sm{width:auto;flex:none;padding:.7rem 1rem;border:1.5px solid var(--line);border-radius:.6rem;background:var(--card);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-bottom:.8rem}
+.grid label{font-size:.8rem;color:var(--mut)}
+.grid input{margin-top:.2rem;font-size:1.2rem;text-align:center}
+textarea{min-height:5.5rem;margin:.2rem 0 .8rem}
+.opt{display:flex;gap:1.5rem;margin-bottom:.8rem}
+.opt label{display:flex;align-items:center;gap:.5rem}
+.opt input{width:auto}
+#sum{color:var(--mut);margin-bottom:.8rem}
+#go{width:100%;padding:1.1rem;font-size:1.3rem;font-weight:700;border:0;border-radius:.8rem;background:var(--ac);color:#fff}
+details{margin-top:1.2rem}
+li{color:var(--mut);margin:.2rem 0}
+#run{display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;text-align:center;color:#fff;padding:env(safe-area-inset-top,0px) 1rem env(safe-area-inset-bottom,0px)}
+body.on #run{display:flex}
+body.on #setup{display:none}
+#run[data-p=prep],#run[data-p=warm]{background:#C47F00}
+#run[data-p=work]{background:#D62828}
+#run[data-p=rest]{background:#237A3E}
+#run[data-p=set]{background:#2158D6}
+#run[data-p=cool]{background:#0F7C7E}
+#run[data-p=done]{background:#262D38}
+#lab{font-size:clamp(1.6rem,5vw,2.6rem);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+#num{font-size:clamp(7rem,30vw,16rem);font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+#ex{font-size:clamp(1.4rem,4.5vw,2.2rem);min-height:1.3em}
+#pos,#tot{font-size:1rem;opacity:.85}
+#run .btns{display:flex;gap:.8rem;margin-top:1rem}
+#run button{padding:.9rem 1.6rem;font-size:1.2rem;font-weight:700;border:2px solid #fff;border-radius:.8rem;background:rgba(255,255,255,.15);color:#fff}
+</style>
+</head>
+<body>
+<main id="setup">
+ <h1>Tabata Pro</h1>
+ <div class="row"><select id="pre" aria-label="Preset"></select><button class="sm" id="sv">Salva</button><button class="sm" id="dl">Elimina</button></div>
+ <div class="grid" id="grid"></div>
+ <label for="names" style="font-size:.8rem;color:var(--mut)">Esercizi (uno per riga, a rotazione; facoltativo)</label>
+ <textarea id="names" placeholder="Squat&#10;Flessioni&#10;Burpees"></textarea>
+ <div class="opt"><label><input type="checkbox" id="voice" checked> Voce</label><label><input type="checkbox" id="snd" checked> Suoni</label></div>
+ <div id="sum"></div>
+ <button id="go">Avvia</button>
+ <details><summary>Storico</summary><ul id="log"></ul><button class="sm" id="clr">Cancella storico</button></details>
+</main>
+<section id="run" data-p="prep">
+ <div id="lab"></div><div id="num"></div><div id="ex"></div><div id="pos"></div><div id="tot"></div>
+ <div class="btns"><button id="pz">Pausa</button><button id="sk">Salta</button><button id="st">Stop</button></div>
+</section>
+<script>
+const $=id=>document.getElementById(id);
+const FIELDS=[['prep','Preparazione (s)'],['warm','Riscaldamento (s)'],['work','Lavoro (s)'],['rest','Riposo (s)'],['reps','Ripetizioni'],['sets','Serie'],['setrest','Pausa serie (s)'],['cool','Defaticamento (s)']];
+const DEF={prep:10,warm:0,work:20,rest:10,reps:8,sets:1,setrest:60,cool:0};
+const BUILT={'Tabata classico':{...DEF},'HIIT 40/20':{...DEF,work:40,rest:20,reps:10},'Round 3 minuti':{...DEF,work:180,rest:60,reps:3}};
+const ls=(k,d)=>{try{return JSON.parse(localStorage.getItem(k))||d}catch(e){return d}};
+const sv=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}};
+let user=ls('tb_pre',{}),P=[],S=[],i=0,endAt=0,leftMs=0,paused=false,timer=null,lastB=-1,wl=null,ctx=null,t0=0,cfg={...DEF};
+$('grid').innerHTML=FIELDS.map(([k,l])=>`<div><label for="f_${k}">${l}</label><input id="f_${k}" type="number" inputmode="numeric" min="0"></div>`).join('');
+const esc=t=>String(t).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const fmt=s=>{s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor(s%3600/60),r=s%60;return(h?h+':'+String(m).padStart(2,'0'):m)+':'+String(r).padStart(2,'0')};
+function read(){const c={};FIELDS.forEach(([k])=>{let v=parseInt($('f_'+k).value)||0;if(k==='reps'||k==='sets')v=Math.max(1,v);c[k]=Math.max(0,v)});return c}
+function write(c){FIELDS.forEach(([k])=>$('f_'+k).value=c[k]);}
+const names=()=>$('names').value.split('\n').map(s=>s.trim()).filter(Boolean);
+function build(c,ex){
+ const L=[];let n=0;
+ const nxt=()=>ex.length?'Prossimo: '+ex[n%ex.length]:'';
+ if(c.prep)L.push({t:'prep',d:c.prep,l:'Preparati',x:nxt()});
+ if(c.warm)L.push({t:'warm',d:c.warm,l:'Riscaldamento',x:nxt()});
+ for(let s=1;s<=c.sets;s++){
+  for(let r=1;r<=c.reps;r++){
+   L.push({t:'work',d:c.work,l:'Lavoro',r,s,x:ex.length?ex[n++%ex.length]:''});
+   if(r<c.reps&&c.rest)L.push({t:'rest',d:c.rest,l:'Riposo',r,s,x:nxt()});
+  }
+  if(s<c.sets&&c.setrest)L.push({t:'set',d:c.setrest,l:'Pausa tra le serie',s,x:nxt()});
+ }
+ if(c.cool)L.push({t:'cool',d:c.cool,l:'Defaticamento'});
+ return L.filter(p=>p.d>0)}
+function summary(){const c=read(),L=build(c,names());$('sum').textContent='Durata totale: '+fmt(L.reduce((a,p)=>a+p.d,0))+' · '+L.length+' intervalli'}
+function fillPre(sel){
+ $('pre').innerHTML='<option value="">Preset…</option>'+Object.keys(BUILT).map(k=>`<option>${esc(k)}</option>`).join('')+Object.keys(user).map(k=>`<option value="u:${esc(k)}">${esc(k)}</option>`).join('');
+ if(sel)$('pre').value=sel}
+$('pre').onchange=()=>{const v=$('pre').value;if(!v)return;const p=v.startsWith('u:')?user[v.slice(2)]:{c:BUILT[v],n:''};write(p.c||p);$('names').value=p.n||'';summary()};
+$('sv').onclick=()=>{const n=(prompt('Nome del preset')||'').trim();if(!n)return;user[n]={c:read(),n:$('names').value};sv('tb_pre',user);fillPre('u:'+n)};
+$('dl').onclick=()=>{const v=$('pre').value;if(v.startsWith('u:')&&confirm('Eliminare questo preset?')){delete user[v.slice(2)];sv('tb_pre',user);fillPre()}};
+$('grid').oninput=$('names').oninput=summary;
+function renderLog(){const l=ls('tb_log',[]);$('log').innerHTML=l.length?l.map(e=>`<li>${new Date(e.d).toLocaleDateString('it-IT')} · ${fmt(e.s)}${e.ok?'':' (interrotto)'}</li>`).join(''):'<li>Nessun allenamento registrato.</li>'}
+$('clr').onclick=()=>{if(confirm('Cancellare lo storico?')){sv('tb_log',[]);renderLog()}};
+function beep(f,d){if(!ctx||!$('snd').checked)return;try{const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=f;g.gain.value=.25;o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+d)}catch(e){}}
+function say(t){if(!$('voice').checked||!window.speechSynthesis)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='it-IT';speechSynthesis.speak(u)}catch(e){}}
+async function wake(){try{wl=await navigator.wakeLock.request('screen')}catch(e){}}
+function start(){
+ cfg=read();sv('tb_cfg',{c:cfg,n:$('names').value});
+ P=build(cfg,names());if(!P.length)return;
+ S=P.map((p,k)=>P.slice(k+1).reduce((a,q)=>a+q.d,0));
+ try{ctx=ctx||new(window.AudioContext||window.webkitAudioContext)();ctx.resume()}catch(e){}
+ document.body.classList.add('on');paused=false;$('pz').textContent='Pausa';t0=Date.now();
+ enter(0);timer=setInterval(tick,200);wake()}
+function enter(k){
+ if(k>=P.length){finish(true);return}
+ i=k;const p=P[k];endAt=Date.now()+p.d*1000;lastB=-1;
+ $('run').dataset.p=p.t;$('lab').textContent=p.l;$('num').textContent=p.d;$('ex').textContent=p.x||'';
+ $('pos').textContent=p.r?'Ripetizione '+p.r+'/'+cfg.reps+' · Serie '+p.s+'/'+cfg.sets:(p.s?'Serie '+p.s+'/'+cfg.sets:'');
+ $('tot').textContent='Rimanente '+fmt(p.d+S[k]);
+ say(p.t==='work'&&p.x?'Lavoro, '+p.x:p.l)}
+function tick(){
+ if(paused)return;
+ const ms=endAt-Date.now(),s=Math.ceil(ms/1000);
+ if(ms<=0){beep(990,.35);enter(i+1);return}
+ if(s<=3&&s!==lastB){lastB=s;beep(660,.12)}
+ $('num').textContent=s;$('tot').textContent='Rimanente '+fmt(s+S[i])}
+function finish(ok){
+ clearInterval(timer);try{speechSynthesis.cancel()}catch(e){}
+ if(wl){try{wl.release()}catch(e){}wl=null}
+ const el=Math.round((Date.now()-t0)/1000),l=ls('tb_log',[]);l.unshift({d:Date.now(),s:el,ok});sv('tb_log',l.slice(0,20));renderLog();
+ if(ok){$('run').dataset.p='done';$('lab').textContent='Completato';$('num').textContent='✓';$('ex').textContent='Durata '+fmt(el);$('pos').textContent='';$('tot').textContent='';say('Allenamento completato');beep(880,.5);
+  $('pz').style.display=$('sk').style.display='none';$('st').textContent='Chiudi';$('st').onclick=close}
+ else close()}
+function close(){document.body.classList.remove('on');$('pz').style.display=$('sk').style.display='';$('st').textContent='Stop';$('st').onclick=()=>finish(false)}
+$('pz').onclick=()=>{
+ if(!paused){paused=true;leftMs=endAt-Date.now();$('pz').textContent='Riprendi';try{speechSynthesis.cancel()}catch(e){}}
+ else{paused=false;endAt=Date.now()+leftMs;$('pz').textContent='Pausa'}};
+$('sk').onclick=()=>{if(paused){paused=false;$('pz').textContent='Pausa'}enter(i+1)};
+$('st').onclick=()=>finish(false);
+$('go').onclick=start;
+document.addEventListener('visibilitychange',()=>{if(document.body.classList.contains('on')&&document.visibilityState==='visible')wake()});
+const saved=ls('tb_cfg',null);write(saved?saved.c:DEF);$('names').value=saved?saved.n||'':'';
+fillPre();summary();renderLog();
+</script>
+</body>
+</html>
